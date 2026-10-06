@@ -12,6 +12,8 @@ pip install -r requirements.txt
 # put train.csv and test.csv in ./data/
 python main.py              # full run (~20–30 min on 2 CPU cores)
 python main.py --fast       # smaller Random-Forest search, for a quick check
+
+python report_figures.py    # after main.py: the two figures used in the report (~10 s)
 ```
 
 All outputs are written to `results/`.
@@ -43,5 +45,6 @@ All outputs are written to `results/`.
 | `feature_ablation.csv` | Feature-selection ablation results |
 | `best_params.json` | Selected hyper-parameters and thresholds |
 | `permutation_importance.csv` | Importance values behind fig 4 |
+| `report_fig1_roc.png`, `report_fig2_importance.png` | Column-width figures used in the report (from `report_figures.py`) |
 
 Random seed is fixed (`RANDOM_STATE = 42`) for reproducibility.
