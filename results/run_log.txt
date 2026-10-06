@@ -1,0 +1,140 @@
+======================================================================
+1. DATA EXPLORATION & CLEANING
+======================================================================
+Raw shapes  train=(31112, 16)  test=(13334, 16)
+Numeric features (7): ['aptitude_score', 'performance_score', 'stability_index', 'load_ratio', 'index_weight', 'activity_duration', 'composite_rank']
+Categorical features (8): ['geological_era', 'weather_pattern', 'region', 'personal_interest', 'brew_preference', 'instrument', 'species', 'mineral_type']
+
+Missing values per column:
+                   train_missing  test_missing
+geological_era                 2             2
+weather_pattern                3             0
+region                         4             1
+aptitude_score                 4             1
+performance_score              2             0
+stability_index                2             1
+personal_interest              6             1
+load_ratio                     2             1
+brew_preference                7             3
+instrument                     3             2
+species                        3             2
+index_weight                   3             1
+mineral_type                   3             0
+activity_duration              2             1
+composite_rank                 1             4
+label                          3             1
+Rows with any missing feature: train=47  test=20
+Duplicate rows: train=0  test=0
+
+Label distribution (train):
+label
+no     23645
+yes     7464
+NaN        3
+Positive rate (train) = 0.240
+
+Numeric summary (train):
+                     count     mean      std     min       1%      50%      99%       max   skew  n_outliers_IQR
+aptitude_score     31108.0  342.134   68.925  90.000  151.013  333.515  492.652   510.000 -0.292             617
+performance_score  31110.0  296.493  187.620   0.000    2.125  275.385  779.058  1010.000  0.552             154
+stability_index    31110.0    3.156    0.849   0.000    0.192    3.351    4.368     4.625 -1.229            1128
+load_ratio         31110.0   24.423    9.920   0.000    3.502   23.689   59.173   143.717  1.705            2527
+index_weight       31109.0   12.722    7.747   0.000    0.930   11.730   36.589    99.620  1.511            1017
+activity_duration  31110.0   80.361   25.515   0.000   11.931   80.330  155.677   205.000  0.199            5350
+composite_rank     31111.0    3.239    0.870   0.589    1.442    3.199    5.350     6.876  0.258             115
+
+Categorical summary (train):
+                   n_levels  top_level  top_share  n_levels_<1%
+geological_era            5   Triassic      0.856             2
+weather_pattern           7    Monsoon      0.459             1
+region                   21      Texas      0.897            17
+personal_interest        11  Astronomy      0.127             0
+brew_preference           2   Espresso      0.668             0
+instrument                6      Cello      0.404             0
+species                   7       Lynx      0.698             0
+mineral_type             16     Marble      0.324             2
+
+Correlation of numeric features with label:
+composite_rank       0.352
+aptitude_score       0.329
+stability_index      0.270
+activity_duration    0.227
+performance_score    0.226
+index_weight        -0.008
+load_ratio          -0.003
+Highly correlated numeric pairs (|r|>0.7): performance_score~stability_index r=0.89, performance_score~composite_rank r=0.88, stability_index~composite_rank r=0.83, load_ratio~activity_duration r=0.72
+
+Dropped rows with missing label: train 3, test 1
+Missing feature values are imputed INSIDE the pipeline (median / most-frequent, fitted on training folds only).
+Outliers are kept: the IQR rule flags many points simply because the distributions are wide/long-tailed, values are in a plausible range (no negatives or impossible values), and removing them would discard real signal. log1p + scaling limits their leverage in Logistic Regression; Random Forest splits on ranks and is insensitive to them.
+Right-skewed (skew>1) columns to log-transform for LR: ['load_ratio', 'index_weight']
+
+======================================================================
+2. FEATURE ENGINEERING
+======================================================================
+- Categorical: most-frequent imputation + one-hot; levels with <1% frequency merged into an 'infrequent' bucket (OneHotEncoder min_frequency=0.01); unseen test levels map to the same bucket.
+- Numeric (LR): median imputation, log1p on ['load_ratio', 'index_weight'], StandardScaler.
+- Numeric (RF): median imputation only (trees are scale-invariant).
+- Encoded design matrix: 64 columns (from 15 raw features)
+
+======================================================================
+3. MODEL TRAINING & HYPER-PARAMETER TUNING
+======================================================================
+5-fold stratified CV on the training set; selection metric = ROC-AUC (threshold-independent, robust to 24/76 imbalance). F1 also recorded.
+
+[LR] grid of 14 configs, 5.5s
+[LR] best params: {'clf__C': 1000, 'clf__class_weight': None}  CV ROC-AUC=0.8910
+[LR] lbfgs converged in 123 iterations (stopping: tol=1e-4, max_iter=5000)
+
+[RF] random search 20 configs, 157.5s
+[RF] best params: {'clf__n_estimators': 300, 'clf__min_samples_leaf': 10, 'clf__max_features': 'sqrt', 'clf__max_depth': None, 'clf__class_weight': 'balanced'}  CV ROC-AUC=0.8911
+
+======================================================================
+2b. FEATURE SELECTION ABLATION (CV on train, tuned params)
+======================================================================
+             model                               features  cv_roc_auc  cv_roc_auc_std  cv_f1
+LogisticRegression                           all features      0.8910          0.0034 0.6259
+LogisticRegression drop composite_rank (redundant, r>0.8)      0.8909          0.0034 0.6266
+LogisticRegression drop load_ratio+index_weight (|r_y|~0)      0.8906          0.0038 0.6233
+      RandomForest                           all features      0.8911          0.0039 0.6644
+      RandomForest drop composite_rank (redundant, r>0.8)      0.8916          0.0041 0.6654
+      RandomForest drop load_ratio+index_weight (|r_y|~0)      0.8911          0.0044 0.6631
+[LogisticRegression] chosen feature set: all features  (deltas vs all: drop composite_rank (redundant, r>0.8): -0.0000, drop load_ratio+index_weight (|r_y|~0): -0.0004; CV std=0.0034)
+[RandomForest] chosen feature set: all features  (deltas vs all: drop composite_rank (redundant, r>0.8): +0.0005, drop load_ratio+index_weight (|r_y|~0): +0.0000; CV std=0.0039)
+
+Decision threshold tuning (imbalanced data -> default 0.5 is not F1-optimal):
+[LR] F1-optimal threshold on OOF train predictions = 0.342 (OOF F1=0.6708)
+[RF] F1-optimal threshold on OOF train predictions = 0.554 (OOF F1=0.6698)
+
+======================================================================
+4. EVALUATION ON HELD-OUT TEST SET (used once)
+======================================================================
+[LogisticRegression] train ROC-AUC=0.8922  test ROC-AUC=0.8887
+[RandomForest] train ROC-AUC=0.9321  test ROC-AUC=0.8900
+
+                    model  threshold  accuracy  balanced_acc  precision  recall     f1  roc_auc  pr_auc    TN   FP   FN   TP  fit_time_s  predict_time_s
+Baseline (majority class)      0.500    0.7624        0.5000     0.0000  0.0000 0.0000   0.5000  0.2376 10165    0 3168    0         NaN             NaN
+  LogisticRegression @0.5      0.500    0.8393        0.7475     0.6969  0.5726 0.6287   0.8887  0.7025  9376  789 1354 1814      0.3229          0.0230
+LogisticRegression @tuned      0.342    0.8206        0.7964     0.5975  0.7503 0.6653   0.8887  0.7025  8564 1601  791 2377      0.3229          0.0230
+        RandomForest @0.5      0.500    0.8021        0.8092     0.5565  0.8229 0.6640   0.8900  0.7070  8087 2078  561 2607      0.9059          0.0947
+      RandomForest @tuned      0.554    0.8156        0.8008     0.5848  0.7724 0.6657   0.8900  0.7070  8428 1737  721 2447      0.9059          0.0947
+
+Permutation importance (drop in test ROC-AUC):
+                   LogisticRegression  RandomForest
+weather_pattern                0.1068        0.0521
+composite_rank                 0.0254        0.0182
+aptitude_score                 0.0024        0.0163
+personal_interest              0.0173        0.0129
+instrument                     0.0099        0.0117
+activity_duration              0.0001        0.0086
+performance_score              0.0724        0.0034
+mineral_type                   0.0576        0.0033
+brew_preference                0.0090        0.0030
+stability_index                0.1814        0.0028
+species                        0.0040        0.0026
+load_ratio                     0.0044        0.0014
+region                         0.0011        0.0004
+geological_era                 0.0007        0.0004
+index_weight                   0.0005        0.0003
+
+Total runtime 198s. Outputs in C:\Users\ASUS\Downloads\in6227-assignment1\in6227-assignment1\results

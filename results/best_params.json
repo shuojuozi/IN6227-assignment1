@@ -1,0 +1,17 @@
+{
+  "lr_best_params": {
+    "clf__C": "1000",
+    "clf__class_weight": "None"
+  },
+  "rf_best_params": {
+    "clf__n_estimators": "300",
+    "clf__min_samples_leaf": "10",
+    "clf__max_features": "sqrt",
+    "clf__max_depth": "None",
+    "clf__class_weight": "balanced"
+  },
+  "thresholds": {
+    "LR": 0.34215800300370847,
+    "RF": 0.5540697589671686
+  }
+}
